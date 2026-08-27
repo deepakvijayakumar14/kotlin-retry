@@ -40,7 +40,7 @@ Resilience4j is excellent but designed for Java: registry-based, annotation-heav
 ## Installation
 
 The Maven coordinate uses the `io.github.deepakvijayakumar14` namespace; the Kotlin package is
-`io.kotlinretry`.
+`io.kotlinretry`. Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ```kotlin
 dependencies {
