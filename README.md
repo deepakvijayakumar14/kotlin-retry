@@ -1,6 +1,6 @@
 # kotlin-retry
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.kotlinretry/kotlin-retry.svg)](https://search.maven.org/artifact/io.kotlinretry/kotlin-retry)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.deepakvijayakumar14/kotlin-retry.svg)](https://central.sonatype.com/artifact/io.github.deepakvijayakumar14/kotlin-retry)
 [![CI](https://github.com/deepakvijayakumar14/kotlin-retry/actions/workflows/ci.yml/badge.svg)](https://github.com/deepakvijayakumar14/kotlin-retry/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -38,9 +38,12 @@ Resilience4j is excellent but designed for Java: registry-based, annotation-heav
 
 ## Installation
 
+The Maven coordinate uses the `io.github.deepakvijayakumar14` namespace; the Kotlin package is
+`io.kotlinretry`.
+
 ```kotlin
 dependencies {
-    implementation("io.kotlinretry:kotlin-retry:0.2.0")
+    implementation("io.github.deepakvijayakumar14:kotlin-retry:0.2.0")
 }
 ```
 

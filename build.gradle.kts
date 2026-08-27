@@ -9,7 +9,9 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
 }
 
-group   = "io.kotlinretry"
+// Maven coordinate namespace, verified in the Central Portal.
+// The Kotlin package stays io.kotlinretry - the two are unrelated.
+group   = "io.github.deepakvijayakumar14"
 version = "0.2.0"
 
 repositories {
@@ -36,8 +38,20 @@ tasks.withType<KotlinCompile> {
 
 tasks.withType<Test> { useJUnitPlatform() }
 
+/** Prints the project version alone, so the release workflow can check it against the git tag. */
+tasks.register("printVersion") {
+    val projectVersion = project.version.toString()
+    doLast { println(projectVersion) }
+}
+
+// Kotlin sources produce no `javadoc` output, so withJavadocJar() would publish an empty jar.
+// Dokka is already on the classpath - use it for the javadoc artifact Central requires.
+val dokkaJavadocJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("javadoc")
+    from(tasks.named("dokkaJavadoc"))
+}
+
 java {
-    withJavadocJar()
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -47,6 +61,7 @@ publishing {
     publications {
         create<MavenPublication>("mavenJava") {
             from(components["java"])
+            artifact(dokkaJavadocJar)
             pom {
                 name.set("kotlin-retry")
                 description.set("Lightweight coroutine-native resilience DSL for Kotlin: retry, circuit breaker, timeout, fallback")
@@ -59,31 +74,35 @@ publishing {
                 }
                 developers {
                     developer {
-                        id.set("deepakvijayakumar")
+                        id.set("deepakvijayakumar14")
                         name.set("Deepak Vijayakumar")
+                        url.set("https://github.com/deepakvijayakumar14")
                     }
                 }
                 scm {
                     url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
+                    connection.set("scm:git:https://github.com/deepakvijayakumar14/kotlin-retry.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/deepakvijayakumar14/kotlin-retry.git")
                 }
             }
         }
     }
     repositories {
+        // Sonatype's OSSRH reached end-of-life on 2025-06-30. The Central Portal takes an uploaded
+        // bundle instead of a deploy, so publish into a local directory and let the release
+        // workflow zip and POST it.
         maven {
-            name = "sonatype"
-            url  = uri(
-                if (version.toString().endsWith("SNAPSHOT"))
-                    "https://s01.oss.sonatype.org/content/repositories/snapshots/"
-                else
-                    "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-            )
-            credentials {
-                username = findProperty("ossrhUsername") as String? ?: System.getenv("OSSRH_USERNAME")
-                password = findProperty("ossrhPassword") as String? ?: System.getenv("OSSRH_PASSWORD")
-            }
+            name = "staging"
+            url  = layout.buildDirectory.dir("staging-deploy").get().asFile.toURI()
         }
     }
 }
 
-signing { sign(publishing.publications["mavenJava"]) }
+signing {
+    // Signing keys only exist in CI, so keep `./gradlew build` working without them.
+    val signingKey        = System.getenv("GPG_PRIVATE_KEY")
+    val signingPassphrase = System.getenv("GPG_PASSPHRASE")
+    isRequired = signingKey != null
+    if (signingKey != null) useInMemoryPgpKeys(signingKey, signingPassphrase)
+    sign(publishing.publications["mavenJava"])
+}
