@@ -9,16 +9,16 @@ import kotlin.time.Duration.Companion.milliseconds
 private val log = LoggerFactory.getLogger("io.kotlinretry.Retry")
 
 /** Default number of total attempts (including the first try) used by [RetryPolicy.Builder]. */
-private const val DEFAULT_MAX_ATTEMPTS = 3
+internal const val DEFAULT_MAX_ATTEMPTS = 3
 
 /** Default base delay before the first retry. */
-private val DEFAULT_DELAY = 200.milliseconds
+internal val DEFAULT_DELAY = 200.milliseconds
 
 /** Shared default strategy. [Backoff.exponential] is stateless, so one instance is reusable. */
-private val DEFAULT_BACKOFF = Backoff.exponential()
+internal val DEFAULT_BACKOFF = Backoff.exponential()
 
 /** Default predicate: retry any [Exception], but never an [Error]. */
-private val DEFAULT_RETRY_ON: (Throwable) -> Boolean = { it is Exception }
+internal val DEFAULT_RETRY_ON: (Throwable) -> Boolean = { it is Exception }
 
 // -------------------------------------------------------------------------------------------------
 // Public DSL entry points

@@ -2,6 +2,9 @@ package io.kotlinretry
 
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import java.io.IOException
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -58,6 +61,17 @@ class ReadmeSnippetsCompileCheck : DescribeSpec({
 
             search.execute { "text" } shouldBe "text"
             search.execute { 7 } shouldBe 7
+        }
+
+        it("flow: retryWith, inline and with a policy") {
+            val prices = flow<String> { throw IOException("feed down") }
+                .retryWith(attempts = 5, delay = 0.milliseconds, backoff = Backoff.jitter())
+                .catch { emit("unavailable") }
+                .toList()
+            prices shouldBe listOf("unavailable")
+
+            val streamingPolicy = retryPolicy { attempts = 2; delay = 0.milliseconds }
+            flow { emit("event") }.retryWith(streamingPolicy).toList() shouldBe listOf("event")
         }
 
         it("sharing one circuit breaker across policies") {

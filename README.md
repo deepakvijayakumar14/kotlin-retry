@@ -29,6 +29,7 @@ Resilience4j is excellent but designed for Java: registry-based, annotation-heav
 | | kotlin-retry | Resilience4j |
 |---|:---:|:---:|
 | Coroutine-native (`suspend`) | YES | Partial |
+| `Flow` operator | YES | NO |
 | DSL configuration | YES | NO |
 | Zero code generation | YES | YES |
 | Dependency footprint | Coroutines only | 10+ modules |
@@ -224,6 +225,30 @@ val reserveStock = resiliencePolicy("reserve-stock") { use(breaker) }
 getStock.execute { getStock(itemId) }
 reserveStock.execute { reserveStock(itemId, qty) }
 ```
+
+---
+
+## Flow
+
+`retryWith` re-collects a failing upstream flow using the same policies as the rest of the library:
+
+```kotlin
+val prices = priceUpdates()
+    .retryWith(attempts = 5, delay = 200.milliseconds, backoff = Backoff.jitter())
+    .catch { emit(Price.unavailable()) }
+
+// or with a policy you already have
+val events = userEvents().retryWith(streamingPolicy)
+```
+
+Two things differ from `retry { }`, both inherent to retrying a cold flow:
+
+- **The upstream is re-collected from the start.** A flow that fails after emitting will re-emit
+  those values on the next attempt, so downstream sees repeats. Deduplicate if that matters.
+- **The original exception propagates** once attempts run out, rather than being wrapped in
+  `RetryExhaustedException`. That keeps downstream `catch { it is IOException }` working.
+
+Cancellation is never retried, as everywhere else.
 
 ---
 
