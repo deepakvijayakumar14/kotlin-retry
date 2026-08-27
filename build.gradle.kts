@@ -1,12 +1,14 @@
+import com.vanniktech.maven.publish.SonatypeHost
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     kotlin("jvm") version "1.9.23"
     `java-library`
-    `maven-publish`
-    signing
     id("org.jetbrains.dokka") version "1.9.20"
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
+    // Matches kotlin-snowflake. 0.30.0 is the last line that supports Kotlin 1.9.x;
+    // 0.37.0 requires Kotlin Gradle Plugin 2.2+.
+    id("com.vanniktech.maven.publish") version "0.30.0"
 }
 
 // Maven coordinate namespace, verified in the Central Portal.
@@ -38,71 +40,69 @@ tasks.withType<KotlinCompile> {
 
 tasks.withType<Test> { useJUnitPlatform() }
 
-/** Prints the project version alone, so the release workflow can check it against the git tag. */
+/** Prints the project version alone, so the publish workflow can report and check it. */
 tasks.register("printVersion") {
     val projectVersion = project.version.toString()
     doLast { println(projectVersion) }
 }
 
-// Kotlin sources produce no `javadoc` output, so withJavadocJar() would publish an empty jar.
-// Dokka is already on the classpath - use it for the javadoc artifact Central requires.
-val dokkaJavadocJar by tasks.registering(Jar::class) {
-    archiveClassifier.set("javadoc")
-    from(tasks.named("dokkaJavadoc"))
-}
-
 java {
-    withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            from(components["java"])
-            artifact(dokkaJavadocJar)
-            pom {
-                name.set("kotlin-retry")
-                description.set("Lightweight coroutine-native resilience DSL for Kotlin: retry, circuit breaker, timeout, fallback")
-                url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
-                licenses {
-                    license {
-                        name.set("MIT License")
-                        url.set("https://opensource.org/licenses/MIT")
-                    }
-                }
-                developers {
-                    developer {
-                        id.set("deepakvijayakumar14")
-                        name.set("Deepak Vijayakumar")
-                        url.set("https://github.com/deepakvijayakumar14")
-                    }
-                }
-                scm {
-                    url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
-                    connection.set("scm:git:https://github.com/deepakvijayakumar14/kotlin-retry.git")
-                    developerConnection.set("scm:git:ssh://git@github.com/deepakvijayakumar14/kotlin-retry.git")
-                }
+// Publishing to the Central Portal. OSSRH reached end-of-life on 2025-06-30, so the legacy
+// s01.oss.sonatype.org endpoints no longer accept deployments.
+//
+// Credentials are read from these Gradle properties, supplied in CI as ORG_GRADLE_PROJECT_* env:
+//   mavenCentralUsername            Portal user token name
+//   mavenCentralPassword            Portal user token password
+//   signingInMemoryKey              ASCII-armoured GPG private key
+//   signingInMemoryKeyPassword      passphrase for that key
+//
+// Publish with: ./gradlew publishToMavenCentral
+mavenPublishing {
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    // Central rejects unsigned artifacts, but signing every local build would make a GPG key a
+    // prerequisite for `publishToMavenLocal` and for CI. Sign only when a key is configured.
+    //
+    // Blank counts as absent, not present: GitHub Actions substitutes an empty string for a
+    // secret that does not exist, so an isPresent() check would try to sign with an empty key
+    // and fail with "no configured signatory".
+    if (!providers.gradleProperty("signingInMemoryKey").orNull.isNullOrBlank()) {
+        signAllPublications()
+    }
+
+    coordinates(group.toString(), "kotlin-retry", version.toString())
+
+    pom {
+        name.set("kotlin-retry")
+        description.set(
+            "Lightweight coroutine-native resilience DSL for Kotlin: retry, circuit breaker, timeout, fallback"
+        )
+        url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
+        inceptionYear.set("2026")
+
+        licenses {
+            license {
+                name.set("MIT License")
+                url.set("https://opensource.org/licenses/MIT")
             }
         }
-    }
-    repositories {
-        // Sonatype's OSSRH reached end-of-life on 2025-06-30. The Central Portal takes an uploaded
-        // bundle instead of a deploy, so publish into a local directory and let the release
-        // workflow zip and POST it.
-        maven {
-            name = "staging"
-            url  = layout.buildDirectory.dir("staging-deploy").get().asFile.toURI()
+
+        developers {
+            developer {
+                id.set("deepakvijayakumar14")
+                name.set("Deepak Vijayakumar")
+                url.set("https://github.com/deepakvijayakumar14")
+            }
+        }
+
+        scm {
+            connection.set("scm:git:git://github.com/deepakvijayakumar14/kotlin-retry.git")
+            developerConnection.set("scm:git:ssh://github.com/deepakvijayakumar14/kotlin-retry.git")
+            url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
         }
     }
-}
-
-signing {
-    // Signing keys only exist in CI, so keep `./gradlew build` working without them.
-    val signingKey        = System.getenv("GPG_PRIVATE_KEY")
-    val signingPassphrase = System.getenv("GPG_PASSPHRASE")
-    isRequired = signingKey != null
-    if (signingKey != null) useInMemoryPgpKeys(signingKey, signingPassphrase)
-    sign(publishing.publications["mavenJava"])
 }

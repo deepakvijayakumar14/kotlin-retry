@@ -1,0 +1,86 @@
+name: Publish
+
+# Manual trigger only, and never on push or tag. A version released to Maven Central can
+# never be deleted or overwritten, so publishing must be a deliberate act rather than a
+# side effect of pushing a commit. This mirrors kotlin-snowflake.
+#
+# Requires four repository secrets:
+#   MAVEN_CENTRAL_USERNAME    Central Portal user token name
+#   MAVEN_CENTRAL_PASSWORD    Central Portal user token password
+#   SIGNING_KEY               ASCII-armoured GPG private key (full block)
+#   SIGNING_KEY_PASSWORD      passphrase for that key
+#
+# Leave "dry run" checked to build and sign the artifacts without uploading. That exercises
+# the credentials and the signing key against the real build, which is the cheapest way to
+# find a broken key before it matters.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: build and sign locally, upload nothing'
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Report what will happen
+        run: |
+          VERSION=$(./gradlew -q printVersion)
+          echo "Version:  $VERSION"
+          echo "Dry run:  ${{ inputs.dry_run }}"
+          case "$VERSION" in
+            *-SNAPSHOT) echo "::error::Central does not accept SNAPSHOT versions ($VERSION)"; exit 1 ;;
+          esac
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo "::warning::Uploading $VERSION to Maven Central. Released versions cannot be deleted or overwritten."
+          fi
+
+      - name: Build and test
+        run: ./gradlew build
+
+      - name: Dry run - build and sign without uploading
+        if: ${{ inputs.dry_run }}
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew publishToMavenLocal
+
+      - name: Confirm the dry run produced signatures
+        if: ${{ inputs.dry_run }}
+        run: |
+          DIR=~/.m2/repository/io/github/deepakvijayakumar14/kotlin-retry
+          find "$DIR" -type f | sort
+          if ! find "$DIR" -name '*.asc' | grep -q .; then
+            echo "::error::No .asc signatures produced. SIGNING_KEY is missing or invalid;" \
+                 "Central rejects unsigned artifacts."
+            exit 1
+          fi
+
+      - name: Publish to Maven Central
+        if: ${{ !inputs.dry_run }}
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew publishToMavenCentral
+
+      - name: Next step
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "Uploaded as a pending deployment. It is not public yet." >> $GITHUB_STEP_SUMMARY
+          echo "Review and release it at https://central.sonatype.com/publishing/deployments" >> $GITHUB_STEP_SUMMARY
