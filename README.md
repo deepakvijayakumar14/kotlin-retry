@@ -7,12 +7,12 @@
 A lightweight, coroutine-native resilience DSL for Kotlin. Composable retry, circuit breaker, timeout, and fallback — without the weight of Resilience4j.
 
 ```kotlin
-val result = resilient("payment-service") {
+val result = resilient("payment-service", configure = {
     retry          { attempts = 3; backoff = Backoff.exponential() }
     circuitBreaker { failureThreshold = 5; openDuration = 30.seconds }
     timeout(5.seconds)
     fallback       { "cached-result" }
-} {
+}) {
     callPaymentService()
 }
 ```
@@ -46,26 +46,29 @@ dependencies {
 
 ## Retry
 
+> Kotlin allows only one trailing lambda per call, so the configuration block is passed
+> as the named `configure` argument and the operation stays in the trailing position.
+
 ```kotlin
 // Basic retry
-val result = retry {
+val result = retry(configure = {
     attempts = 3
     delay    = 200.milliseconds
     backoff  = Backoff.exponential()
-} {
+}) {
     fetchFromApi()
 }
 
 // Only retry specific exceptions
-retry {
+retry(configure = {
     attempts = 5
     retryOn  = { it is IOException || it is TimeoutException }
-} {
+}) {
     callRemoteService()
 }
 
 // Get context inside the block
-retry { attempts = 3 } { ctx ->
+retry(configure = { attempts = 3 }) { ctx ->
     if (ctx.isFirstAttempt) log.info("Starting operation")
     log.debug("Attempt ${ctx.attempt} of ${ctx.maxAttempts}")
     callApi()
@@ -121,10 +124,10 @@ States: `CLOSED` (normal) -> `OPEN` (rejecting calls) -> `HALF_OPEN` (probing) -
 Wraps the entire execution (including retries) in a coroutine timeout:
 
 ```kotlin
-val result = resilient("search") {
+val result = resilient("search", configure = {
     retry   { attempts = 3 }
     timeout(10.seconds)              // Total budget across all attempts
-} {
+}) {
     callSearchApi()
 }
 ```
@@ -135,20 +138,20 @@ val result = resilient("search") {
 
 ```kotlin
 // Static value
-resilient("cache") {
+resilient("cache", configure = {
     retry    { attempts = 3 }
     fallback { emptyList() }
-} {
+}) {
     fetchFromDatabase()
 }
 
 // Dynamic fallback with access to the exception
-resilient("pricing") {
+resilient("pricing", configure = {
     fallback { ex ->
         log.warn("Pricing unavailable: ${ex.message}, returning cached price")
         cachedPrice
     }
-} {
+}) {
     fetchLivePrice()
 }
 ```
@@ -164,7 +167,7 @@ fallback( timeout( circuitBreaker( retry( block ) ) ) )
 ```
 
 ```kotlin
-val result = resilient("payment-processor") {
+val result = resilient("payment-processor", configure = {
     retry {
         attempts = 3
         delay    = 100.milliseconds
@@ -184,7 +187,7 @@ val result = resilient("payment-processor") {
             else                           -> throw ex
         }
     }
-} { ctx ->
+}) { ctx ->
     log.debug("Payment attempt ${ctx.attempt}")
     paymentGateway.charge(request)
 }
@@ -201,15 +204,15 @@ val breaker = circuitBreaker("inventory-service") {
 }
 
 // In service A
-resilient("get-stock") {
+resilient("get-stock", configure = {
     use(breaker)
     retry { attempts = 2 }
-} { getStock(itemId) }
+}) { getStock(itemId) }
 
 // In service B - same breaker, shared failure count
-resilient("reserve-stock") {
+resilient("reserve-stock", configure = {
     use(breaker)
-} { reserveStock(itemId, qty) }
+}) { reserveStock(itemId, qty) }
 ```
 
 ---

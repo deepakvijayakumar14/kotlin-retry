@@ -7,6 +7,9 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val log = LoggerFactory.getLogger("io.kotlinretry.Retry")
 
+/** Default number of total attempts (including the first try) used by [RetryPolicy.Builder]. */
+private const val DEFAULT_MAX_ATTEMPTS = 3
+
 // -------------------------------------------------------------------------------------------------
 // Public DSL entry points
 // -------------------------------------------------------------------------------------------------
@@ -15,15 +18,18 @@ private val log = LoggerFactory.getLogger("io.kotlinretry.Retry")
  * Retries [block] according to a [RetryPolicy] built with the DSL.
  *
  * ```kotlin
- * val result = retry {
+ * val result = retry(configure = {
  *     attempts  = 3
  *     delay     = 500.milliseconds
  *     backoff   = Backoff.exponential()
  *     retryOn   = { it is IOException }
- * } {
+ * }) {
  *     callRemoteApi()
  * }
  * ```
+ *
+ * Kotlin permits only one trailing lambda per call, so [configure] is passed by name
+ * and [block] stays in the trailing position.
  *
  * @throws RetryExhaustedException if all attempts fail
  */
@@ -71,6 +77,9 @@ class RetryPolicy private constructor(
     val onRetry: ((RetryContext, Throwable) -> Unit)?,
 ) {
 
+    // Retrying is only meaningful if every failure type can be inspected, so the catch is
+    // deliberately broad; [retryOn] decides what is actually retryable.
+    @Suppress("TooGenericExceptionCaught")
     internal suspend fun <T> execute(block: suspend (RetryContext) -> T): T {
         var lastException: Throwable? = null
 
@@ -81,20 +90,24 @@ class RetryPolicy private constructor(
             } catch (ex: Throwable) {
                 if (!retryOn(ex)) throw ex          // non-retryable: rethrow immediately
                 lastException = ex
-
-                if (attempt < maxAttempts) {
-                    val waitDuration = backoff.delayFor(attempt, initialDelay)
-                    onRetry?.invoke(ctx, ex)
-                    log.debug(
-                        "Attempt {}/{} failed ({}), retrying in {}",
-                        attempt, maxAttempts, ex.message, waitDuration
-                    )
-                    if (waitDuration > Duration.ZERO) delay(waitDuration)
-                }
+                awaitNextAttempt(ctx, ex)
             }
         }
 
         throw RetryExhaustedException(maxAttempts, lastException!!)
+    }
+
+    /** Notifies [onRetry] and waits out the backoff delay, unless [ctx] was the final attempt. */
+    private suspend fun awaitNextAttempt(ctx: RetryContext, ex: Throwable) {
+        if (ctx.isLastAttempt) return
+
+        val waitDuration = backoff.delayFor(ctx.attempt, initialDelay)
+        onRetry?.invoke(ctx, ex)
+        log.debug(
+            "Attempt {}/{} failed ({}), retrying in {}",
+            ctx.attempt, maxAttempts, ex.message, waitDuration
+        )
+        if (waitDuration > Duration.ZERO) delay(waitDuration)
     }
 
     // -- Builder -------------------------------------------------------------------------------
@@ -103,7 +116,7 @@ class RetryPolicy private constructor(
         /**
          * Maximum number of total attempts (including the first try). Default: 3.
          */
-        var attempts: Int = 3
+        var attempts: Int = DEFAULT_MAX_ATTEMPTS
 
         /**
          * Base delay before the first retry. Subsequent delays are computed by [backoff].
@@ -147,9 +160,7 @@ class RetryPolicy private constructor(
  * Contextual information available inside a retry block.
  *
  * ```kotlin
- * retry {
- *     attempts = 5
- * } { ctx ->
+ * retry(configure = { attempts = 5 }) { ctx ->
  *     if (ctx.isFirstAttempt) log.info("Starting operation")
  *     callApi()
  * }

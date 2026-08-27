@@ -13,7 +13,7 @@ import kotlin.time.Duration
  * ```
  *
  * ```kotlin
- * val result: String = resilient("payment-service") {
+ * val result: String = resilient("payment-service", configure = {
  *     retry {
  *         attempts = 3
  *         delay    = 200.milliseconds
@@ -25,10 +25,13 @@ import kotlin.time.Duration
  *     }
  *     timeout(5.seconds)
  *     fallback { "default" }
- * } {
+ * }) {
  *     callPaymentService()
  * }
  * ```
+ *
+ * Kotlin permits only one trailing lambda per call, so [configure] is passed by name
+ * and [block] stays in the trailing position.
  */
 suspend fun <T> resilient(
     name: String = "resilient",
@@ -96,6 +99,9 @@ class ResilientBuilder<T>(private val name: String) {
 
     // -- Execution ----------------------------------------------------------------------------
 
+    // The fallback layer is the last line of defence and must see anything the inner
+    // layers throw, hence the deliberately broad catch below.
+    @Suppress("TooGenericExceptionCaught")
     internal suspend fun execute(block: suspend (RetryContext) -> T): T {
         val breaker  = _breaker ?: breakerConfig?.let { circuitBreaker(name, it) }
         val fallback = fallbackFn

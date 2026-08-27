@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
+/** Default consecutive failures before the circuit opens, used by [CircuitBreaker.Builder]. */
+private const val DEFAULT_FAILURE_THRESHOLD = 5
+
 /**
  * Coroutine-safe circuit breaker with three states: CLOSED, OPEN, HALF_OPEN.
  *
@@ -42,6 +45,8 @@ class CircuitBreaker private constructor(private val config: Config) {
     private val state        = AtomicReference(State.CLOSED)
     private val failureCount = AtomicInteger(0)
     private val successCount = AtomicInteger(0)
+    // Read by resolvedState() without holding [mutex], so it must be published safely.
+    @Volatile
     private var openedAt: Instant? = null
 
     val name: String get() = config.name
@@ -56,13 +61,15 @@ class CircuitBreaker private constructor(private val config: Config) {
      * - OPEN: calls are rejected with [CircuitBreakerOpenException]
      * - HALF_OPEN: one probe call is allowed through to test recovery
      */
+    // The breaker must observe every failure type before deciding; [Config.recordFailure]
+    // narrows down what counts as a circuit failure.
+    @Suppress("TooGenericExceptionCaught")
     suspend fun <T> execute(block: suspend () -> T): T {
         val current = resolvedState()
 
-        if (current == State.OPEN) {
-            config.onStateChange?.invoke(name, State.OPEN, State.OPEN)
-            throw CircuitBreakerOpenException(name)
-        }
+        // A rejected call is not a state transition, so onStateChange stays silent here -
+        // otherwise the alerting hook fires once per shed request while the circuit is open.
+        if (current == State.OPEN) throw CircuitBreakerOpenException(name)
 
         return try {
             val result = block()
@@ -106,12 +113,16 @@ class CircuitBreaker private constructor(private val config: Config) {
     }
 
     private fun transitionTo(next: State) {
+        // Stamp the open time *before* publishing OPEN. Writing it afterwards leaves a window in
+        // which a reader sees OPEN alongside the timestamp from a previous cycle, judges
+        // openDuration long elapsed, and flips the circuit straight back to HALF_OPEN.
+        if (next == State.OPEN) openedAt = Instant.now()
+
         val prev = state.getAndSet(next)
         if (prev == next) return
 
         when (next) {
             State.OPEN -> {
-                openedAt = Instant.now()
                 failureCount.set(0)
                 successCount.set(0)
                 log.warn("[{}] Circuit OPENED after {} failures", name, config.failureThreshold)
@@ -133,14 +144,19 @@ class CircuitBreaker private constructor(private val config: Config) {
     /** Resolves OPEN -> HALF_OPEN if [Config.openDuration] has elapsed. */
     private fun resolvedState(): State {
         val current = state.get()
-        if (current == State.OPEN) {
-            val opened = openedAt ?: return current
-            if (Instant.now().isAfter(opened.plusMillis(config.openDuration.inWholeMilliseconds))) {
-                state.compareAndSet(State.OPEN, State.HALF_OPEN)
-                config.onStateChange?.invoke(name, State.OPEN, State.HALF_OPEN)
-                log.info("[{}] Circuit HALF-OPEN - openDuration elapsed", name)
-                return State.HALF_OPEN
-            }
+        if (current != State.OPEN) return current
+
+        val opened = openedAt
+        val openDurationElapsed = opened != null &&
+            Instant.now().isAfter(opened.plusMillis(config.openDuration.inWholeMilliseconds))
+
+        // Only the thread that wins the CAS owns this transition. Firing the callback for every
+        // observer instead would emit one "state change" per read of currentState.
+        // successCount is already 0 here: every path into OPEN goes through transitionTo, which
+        // zeroes it. Re-zeroing would race with a probe that has already succeeded.
+        if (openDurationElapsed && state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+            config.onStateChange?.invoke(name, State.OPEN, State.HALF_OPEN)
+            log.info("[{}] Circuit HALF-OPEN - openDuration elapsed", name)
         }
         return state.get()
     }
@@ -167,7 +183,7 @@ class CircuitBreaker private constructor(private val config: Config) {
 
     class Builder(private val name: String) {
         /** Number of consecutive failures before the circuit opens. Default: 5. */
-        var failureThreshold: Int  = 5
+        var failureThreshold: Int  = DEFAULT_FAILURE_THRESHOLD
 
         /** Number of consecutive successes in HALF_OPEN before the circuit closes. Default: 2. */
         var successThreshold: Int  = 2
