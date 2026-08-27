@@ -89,7 +89,7 @@ class CircuitBreaker private constructor(private val config: Config) {
             State.HALF_OPEN  -> {
                 val count = successCount.incrementAndGet()
                 if (count >= config.successThreshold) {
-                    mutex.withLock { transitionTo(State.CLOSED) }
+                    applyTransition(State.CLOSED)
                 }
             }
             State.OPEN -> { /* shouldn't happen */ }
@@ -102,24 +102,27 @@ class CircuitBreaker private constructor(private val config: Config) {
                 val count = failureCount.incrementAndGet()
                 log.debug("[{}] Failure {}/{}", name, count, config.failureThreshold)
                 if (count >= config.failureThreshold) {
-                    mutex.withLock { transitionTo(State.OPEN) }
+                    applyTransition(State.OPEN)
                 }
             }
-            State.HALF_OPEN -> {
-                mutex.withLock { transitionTo(State.OPEN) }
-            }
+            State.HALF_OPEN -> applyTransition(State.OPEN)
             State.OPEN -> { /* already open */ }
         }
     }
 
-    private fun transitionTo(next: State) {
+    /**
+     * Applies the change and returns the state it replaced, or `null` if the breaker was already
+     * in [next]. Callers must hold [mutex]. [Config.onStateChange] is deliberately not fired
+     * here - see [applyTransition].
+     */
+    private fun transitionTo(next: State): State? {
         // Stamp the open time *before* publishing OPEN. Writing it afterwards leaves a window in
         // which a reader sees OPEN alongside the timestamp from a previous cycle, judges
         // openDuration long elapsed, and flips the circuit straight back to HALF_OPEN.
         if (next == State.OPEN) openedAt = Instant.now()
 
         val prev = state.getAndSet(next)
-        if (prev == next) return
+        if (prev == next) return null
 
         when (next) {
             State.OPEN -> {
@@ -127,10 +130,9 @@ class CircuitBreaker private constructor(private val config: Config) {
                 successCount.set(0)
                 log.warn("[{}] Circuit OPENED after {} failures", name, config.failureThreshold)
             }
-            State.HALF_OPEN -> {
-                successCount.set(0)
-                log.info("[{}] Circuit HALF-OPEN - probing recovery", name)
-            }
+            // HALF_OPEN is reached only through the lock-free CAS in resolvedState(). Coming
+            // through here would bypass that CAS and could clobber a concurrent transition.
+            State.HALF_OPEN -> Unit
             State.CLOSED -> {
                 failureCount.set(0)
                 successCount.set(0)
@@ -138,6 +140,17 @@ class CircuitBreaker private constructor(private val config: Config) {
                 log.info("[{}] Circuit CLOSED - service recovered", name)
             }
         }
+        return prev
+    }
+
+    /**
+     * Transitions under [mutex], then fires [Config.onStateChange] *after* releasing it.
+     *
+     * The callback is user code. Running it under the lock serialises every transition behind it,
+     * and a callback that re-enters the breaker deadlocks on the non-reentrant [Mutex].
+     */
+    private suspend fun applyTransition(next: State) {
+        val prev = mutex.withLock { transitionTo(next) } ?: return
         config.onStateChange?.invoke(name, prev, next)
     }
 
@@ -162,7 +175,7 @@ class CircuitBreaker private constructor(private val config: Config) {
     }
 
     /** Manually resets the circuit breaker to CLOSED state. */
-    suspend fun reset() = mutex.withLock { transitionTo(State.CLOSED) }
+    suspend fun reset() = applyTransition(State.CLOSED)
 
     // -- State enum ---------------------------------------------------------------------------
 
@@ -197,7 +210,13 @@ class CircuitBreaker private constructor(private val config: Config) {
          */
         var recordFailure: (Throwable) -> Boolean = { it is Exception }
 
-        /** Optional callback fired on every state transition. Useful for metrics/alerting. */
+        /**
+         * Optional callback fired on every state transition. Useful for metrics/alerting.
+         *
+         * Invoked outside the breaker's lock, so it may call back into the breaker. The trade-off
+         * is that concurrent transitions may deliver their callbacks in an order that differs from
+         * the order the transitions actually happened in.
+         */
         var onStateChange: ((name: String, from: State, to: State) -> Unit)? = null
 
         internal fun build() = CircuitBreaker(

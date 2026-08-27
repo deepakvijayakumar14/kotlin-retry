@@ -11,7 +11,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -148,6 +152,39 @@ class CircuitBreakerTest : DescribeSpec({
             // Still just the one CLOSED -> OPEN move; shedding load announces nothing.
             transitions.size shouldBe 1
             transitions.none { it.first == it.second } shouldBe true
+        }
+
+        it("releases its lock before onStateChange, so a callback may re-enter the breaker") {
+            var breakerRef: CircuitBreaker? = null
+            val reentered = AtomicBoolean(false)
+
+            val breaker = circuitBreaker("reentrant") {
+                failureThreshold = 1
+                onStateChange    = { _, from, to ->
+                    if (from == CircuitBreaker.State.CLOSED && to == CircuitBreaker.State.OPEN) {
+                        // reset() takes the same mutex the transition just held.
+                        runBlocking { breakerRef!!.reset() }
+                        reentered.set(true)
+                    }
+                }
+            }
+            breakerRef = breaker
+
+            // Daemon thread + bounded get(): if the callback ever deadlocks under the lock again
+            // the test fails on the timeout, and the stuck thread cannot stop the JVM exiting.
+            val executor = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "cb-reentrancy-probe").apply { isDaemon = true }
+            }
+            try {
+                executor.submit {
+                    runBlocking { runCatching { breaker.execute { throw IOException("fail") } } }
+                }.get(10, TimeUnit.SECONDS)
+            } finally {
+                executor.shutdownNow()
+            }
+
+            reentered.get() shouldBe true
+            breaker.currentState shouldBe CircuitBreaker.State.CLOSED
         }
 
         it("does not count non-recorded failures") {
