@@ -1,18 +1,21 @@
 # kotlin-retry
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.kotlinretry/kotlin-retry.svg)](https://search.maven.org/artifact/io.kotlinretry/kotlin-retry)
-[![CI](https://github.com/deepakvijayakumar/kotlin-retry/actions/workflows/ci.yml/badge.svg)](https://github.com/deepakvijayakumar/kotlin-retry/actions)
+[![CI](https://github.com/deepakvijayakumar14/kotlin-retry/actions/workflows/ci.yml/badge.svg)](https://github.com/deepakvijayakumar14/kotlin-retry/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A lightweight, coroutine-native resilience DSL for Kotlin. Composable retry, circuit breaker, timeout, and fallback — without the weight of Resilience4j.
 
 ```kotlin
-val result = resilient("payment-service", configure = {
+// Build the policy once - it owns the circuit breaker's state.
+val payments = resiliencePolicy("payment-service") {
     retry          { attempts = 3; backoff = Backoff.exponential() }
     circuitBreaker { failureThreshold = 5; openDuration = 30.seconds }
     timeout(5.seconds)
-    fallback       { "cached-result" }
-}) {
+}
+
+// Execute it anywhere.
+val result = payments.executeOrElse(fallback = { "cached-result" }) {
     callPaymentService()
 }
 ```
@@ -26,7 +29,6 @@ Resilience4j is excellent but designed for Java: registry-based, annotation-heav
 | | kotlin-retry | Resilience4j |
 |---|:---:|:---:|
 | Coroutine-native (`suspend`) | YES | Partial |
-| `Flow` compatible | YES | NO |
 | DSL configuration | YES | NO |
 | Zero code generation | YES | YES |
 | Dependency footprint | Coroutines only | 10+ modules |
@@ -38,7 +40,7 @@ Resilience4j is excellent but designed for Java: registry-based, annotation-heav
 
 ```kotlin
 dependencies {
-    implementation("io.kotlinretry:kotlin-retry:0.1.0")
+    implementation("io.kotlinretry:kotlin-retry:0.2.0")
 }
 ```
 
@@ -46,29 +48,19 @@ dependencies {
 
 ## Retry
 
-> Kotlin allows only one trailing lambda per call, so the configuration block is passed
-> as the named `configure` argument and the operation stays in the trailing position.
-
 ```kotlin
 // Basic retry
-val result = retry(configure = {
-    attempts = 3
-    delay    = 200.milliseconds
-    backoff  = Backoff.exponential()
-}) {
+val result = retry(attempts = 3, delay = 200.milliseconds, backoff = Backoff.exponential()) {
     fetchFromApi()
 }
 
 // Only retry specific exceptions
-retry(configure = {
-    attempts = 5
-    retryOn  = { it is IOException || it is TimeoutException }
-}) {
+retry(attempts = 5, retryOn = { it is IOException || it is TimeoutException }) {
     callRemoteService()
 }
 
 // Get context inside the block
-retry(configure = { attempts = 3 }) { ctx ->
+retry(attempts = 3) { ctx ->
     if (ctx.isFirstAttempt) log.info("Starting operation")
     log.debug("Attempt ${ctx.attempt} of ${ctx.maxAttempts}")
     callApi()
@@ -81,6 +73,15 @@ val price = retryOrDefault(default = lastKnownPrice) {
 
 // Return null instead of throwing
 val data: MyData? = retryOrNull { fetchData() }
+```
+
+Configuration you want to name and reuse becomes a policy:
+
+```kotlin
+val flaky = retryPolicy { attempts = 5; backoff = Backoff.jitter() }
+
+val a = flaky.execute { callServiceA() }
+val b = flaky.execute { callServiceB() }
 ```
 
 ---
@@ -124,34 +125,36 @@ States: `CLOSED` (normal) -> `OPEN` (rejecting calls) -> `HALF_OPEN` (probing) -
 Wraps the entire execution (including retries) in a coroutine timeout:
 
 ```kotlin
-val result = resilient("search", configure = {
+val search = resiliencePolicy("search") {
     retry   { attempts = 3 }
     timeout(10.seconds)              // Total budget across all attempts
-}) {
-    callSearchApi()
 }
+
+val result = search.execute { callSearchApi() }
 ```
 
 ---
 
 ## Fallback
 
+A fallback belongs to the call, not the policy - that is what lets one policy serve call sites
+returning different types.
+
 ```kotlin
+val cache = resiliencePolicy("cache") { retry { attempts = 3 } }
+
 // Static value
-resilient("cache", configure = {
-    retry    { attempts = 3 }
-    fallback { emptyList() }
-}) {
+cache.executeOrElse(fallback = { emptyList() }) {
     fetchFromDatabase()
 }
 
 // Dynamic fallback with access to the exception
-resilient("pricing", configure = {
-    fallback { ex ->
+cache.executeOrElse(
+    fallback = { ex ->
         log.warn("Pricing unavailable: ${ex.message}, returning cached price")
         cachedPrice
-    }
-}) {
+    },
+) {
     fetchLivePrice()
 }
 ```
@@ -160,14 +163,14 @@ resilient("pricing", configure = {
 
 ## Composing everything
 
-The `resilient` DSL composes all four mechanisms. Execution order:
+A policy composes all four mechanisms. Execution order:
 
 ```
 fallback( timeout( circuitBreaker( retry( block ) ) ) )
 ```
 
 ```kotlin
-val result = resilient("payment-processor", configure = {
+val payments = resiliencePolicy("payment-processor") {
     retry {
         attempts = 3
         delay    = 100.milliseconds
@@ -180,14 +183,17 @@ val result = resilient("payment-processor", configure = {
         onStateChange    = { name, _, to -> alerting.notify(name, to) }
     }
     timeout(8.seconds)
-    fallback { ex ->
+}
+
+val result = payments.executeOrElse(
+    fallback = { ex ->
         when (ex) {
             is CircuitBreakerOpenException -> PaymentResult.serviceUnavailable()
             is OperationTimeoutException   -> PaymentResult.timeout()
             else                           -> throw ex
         }
-    }
-}) { ctx ->
+    },
+) { ctx ->
     log.debug("Payment attempt ${ctx.attempt}")
     paymentGateway.charge(request)
 }
@@ -204,15 +210,50 @@ val breaker = circuitBreaker("inventory-service") {
 }
 
 // In service A
-resilient("get-stock", configure = {
+val getStock = resiliencePolicy("get-stock") {
     use(breaker)
     retry { attempts = 2 }
-}) { getStock(itemId) }
+}
 
 // In service B - same breaker, shared failure count
-resilient("reserve-stock", configure = {
-    use(breaker)
-}) { reserveStock(itemId, qty) }
+val reserveStock = resiliencePolicy("reserve-stock") { use(breaker) }
+
+getStock.execute { getStock(itemId) }
+reserveStock.execute { reserveStock(itemId, qty) }
+```
+
+---
+
+## Build policies once
+
+A policy owns its circuit breaker, and a breaker is only meaningful if it accumulates failures
+across calls. Build policies at startup and hold them; rebuilding one per call gives every call a
+fresh breaker that can never open.
+
+```kotlin
+// Correct: one policy, reused.
+class PaymentClient(private val gateway: Gateway) {
+    private val policy = resiliencePolicy("payments") {
+        circuitBreaker { failureThreshold = 5 }
+    }
+
+    suspend fun charge(request: Request) = policy.execute { gateway.charge(request) }
+}
+```
+
+---
+
+## Cancellation
+
+Cancellation is the caller withdrawing the work, not a failure of it. No layer treats it as one:
+it is never retried, never counted towards opening a circuit, and never converted into a fallback
+value. `CancellationException` always propagates, so structured concurrency behaves as expected.
+
+```kotlin
+val job = launch {
+    retry(attempts = Int.MAX_VALUE) { pollForever() }
+}
+job.cancel()   // the retry loop stops; it does not keep retrying
 ```
 
 ---

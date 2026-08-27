@@ -13,7 +13,7 @@ class RetryTest : DescribeSpec({
 
         it("returns result on first success") {
             var calls = 0
-            val result = retry(configure = { attempts = 3 }) {
+            val result = retry(attempts = 3) {
                 calls++
                 "ok"
             }
@@ -23,12 +23,7 @@ class RetryTest : DescribeSpec({
 
         it("retries on failure and succeeds") {
             var calls = 0
-            val result = retry(
-                configure = {
-                    attempts = 3
-                    delay    = 0.milliseconds
-                }
-            ) {
+            val result = retry(attempts = 3, delay = 0.milliseconds) {
                 calls++
                 if (calls < 3) throw IOException("transient")
                 "recovered"
@@ -40,12 +35,7 @@ class RetryTest : DescribeSpec({
         it("throws RetryExhaustedException when all attempts fail") {
             var calls = 0
             val ex = shouldThrow<RetryExhaustedException> {
-                retry(
-                    configure = {
-                        attempts = 3
-                        delay    = 0.milliseconds
-                    }
-                ) {
+                retry(attempts = 3, delay = 0.milliseconds) {
                     calls++
                     throw IOException("always fails")
                 }
@@ -58,13 +48,7 @@ class RetryTest : DescribeSpec({
         it("does not retry on non-retryable exception") {
             var calls = 0
             shouldThrow<IllegalArgumentException> {
-                retry(
-                    configure = {
-                        attempts = 5
-                        delay    = 0.milliseconds
-                        retryOn  = { it is IOException }
-                    }
-                ) {
+                retry(attempts = 5, delay = 0.milliseconds, retryOn = { it is IOException }) {
                     calls++
                     throw IllegalArgumentException("not retryable")
                 }
@@ -76,11 +60,9 @@ class RetryTest : DescribeSpec({
             val events = mutableListOf<Pair<Int, String>>()
             runCatching {
                 retry(
-                    configure = {
-                        attempts = 3
-                        delay    = 0.milliseconds
-                        onRetry  = { ctx, ex -> events += ctx.attempt to (ex.message ?: "") }
-                    }
+                    attempts = 3,
+                    delay    = 0.milliseconds,
+                    onRetry  = { ctx, ex -> events += ctx.attempt to (ex.message ?: "") },
                 ) {
                     throw IOException("boom")
                 }
@@ -93,12 +75,7 @@ class RetryTest : DescribeSpec({
         it("exposes RetryContext correctly") {
             val contexts = mutableListOf<RetryContext>()
             runCatching {
-                retry(
-                    configure = {
-                        attempts = 3
-                        delay    = 0.milliseconds
-                    }
-                ) { ctx ->
+                retry(attempts = 3, delay = 0.milliseconds) { ctx ->
                     contexts += ctx
                     throw IOException("fail")
                 }
@@ -111,6 +88,21 @@ class RetryTest : DescribeSpec({
         }
     }
 
+    describe("retryPolicy") {
+
+        it("is reusable across calls") {
+            val policy = retryPolicy { attempts = 2; delay = 0.milliseconds }
+
+            var first = 0
+            runCatching { policy.execute { first++; throw IOException("a") } }
+            var second = 0
+            runCatching { policy.execute { second++; throw IOException("b") } }
+
+            first shouldBe 2
+            second shouldBe 2
+        }
+    }
+
     describe("retryOrDefault") {
 
         it("returns result on success") {
@@ -119,7 +111,7 @@ class RetryTest : DescribeSpec({
         }
 
         it("returns default when all attempts fail") {
-            val result = retryOrDefault(default = -1, configure = { attempts = 2; delay = 0.milliseconds }) {
+            val result = retryOrDefault(default = -1, attempts = 2, delay = 0.milliseconds) {
                 throw IOException("fail")
             }
             result shouldBe -1
@@ -129,7 +121,7 @@ class RetryTest : DescribeSpec({
     describe("retryOrNull") {
 
         it("returns null when all attempts fail") {
-            val result = retryOrNull<String>(configure = { attempts = 2; delay = 0.milliseconds }) {
+            val result = retryOrNull<String>(attempts = 2, delay = 0.milliseconds) {
                 throw IOException("fail")
             }
             result shouldBe null

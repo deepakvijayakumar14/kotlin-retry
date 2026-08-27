@@ -14,60 +14,65 @@ class ReadmeSnippetsCompileCheck : DescribeSpec({
 
     describe("README snippets") {
 
-        it("headline: resilient composing retry, breaker, timeout, fallback") {
-            val result = resilient<String>(
-                "payment-service",
-                configure = {
-                    retry { attempts = 3; backoff = Backoff.exponential() }
-                    circuitBreaker { failureThreshold = 5; openDuration = 30.seconds }
-                    timeout(5.seconds)
-                    fallback { "cached-result" }
-                },
-            ) {
+        it("headline: a policy composing retry, breaker and timeout") {
+            val payments = resiliencePolicy("payment-service") {
+                retry          { attempts = 3; delay = 0.milliseconds; backoff = Backoff.exponential() }
+                circuitBreaker { failureThreshold = 5; openDuration = 30.seconds }
+                timeout(5.seconds)
+            }
+
+            val result = payments.executeOrElse(fallback = { "cached-result" }) {
                 throw IOException("gateway down")
             }
             result shouldBe "cached-result"
         }
 
         it("retry: basic, filtered, and context-aware forms") {
-            val basic = retry(
-                configure = {
-                    attempts = 3
-                    delay    = 0.milliseconds
-                    backoff  = Backoff.exponential()
-                },
-            ) { "fetched" }
+            val basic = retry(attempts = 3, delay = 0.milliseconds, backoff = Backoff.exponential()) {
+                "fetched"
+            }
             basic shouldBe "fetched"
 
-            val filtered = retry(
-                configure = {
-                    attempts = 5
-                    delay    = 0.milliseconds
-                    retryOn  = { it is IOException }
-                },
-            ) { "called" }
+            val filtered = retry(attempts = 5, delay = 0.milliseconds, retryOn = { it is IOException }) {
+                "called"
+            }
             filtered shouldBe "called"
 
-            val withContext = retry(configure = { attempts = 3 }) { ctx -> ctx.attempt }
+            val withContext = retry(attempts = 3) { ctx -> ctx.attempt }
             withContext shouldBe 1
         }
 
-        it("retryOrDefault / retryOrNull") {
+        it("retryOrDefault / retryOrNull / retryPolicy") {
             retryOrDefault(default = 1.0) { 42.0 } shouldBe 42.0
             retryOrNull { "data" } shouldBe "data"
+
+            val flaky = retryPolicy { attempts = 5; delay = 0.milliseconds; backoff = Backoff.jitter() }
+            flaky.execute { "via policy" } shouldBe "via policy"
         }
 
-        it("shared circuit breaker via use()") {
+        it("one policy serves call sites returning different types") {
+            val search = resiliencePolicy("search") {
+                retry { attempts = 3; delay = 0.milliseconds }
+                timeout(10.seconds)
+            }
+
+            search.execute { "text" } shouldBe "text"
+            search.execute { 7 } shouldBe 7
+        }
+
+        it("sharing one circuit breaker across policies") {
             val breaker = circuitBreaker("inventory-service") { failureThreshold = 5 }
 
-            val stock = resilient<Int>(
-                "get-stock",
-                configure = {
-                    use(breaker)
-                    retry { attempts = 2 }
-                },
-            ) { 7 }
-            stock shouldBe 7
+            val getStock = resiliencePolicy("get-stock") {
+                use(breaker)
+                retry { attempts = 2; delay = 0.milliseconds }
+            }
+            val reserveStock = resiliencePolicy("reserve-stock") { use(breaker) }
+
+            getStock.execute { 7 } shouldBe 7
+            reserveStock.execute { true } shouldBe true
+            getStock.circuitBreaker shouldBe breaker
+            reserveStock.circuitBreaker shouldBe breaker
         }
     }
 })

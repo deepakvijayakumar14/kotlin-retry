@@ -10,7 +10,7 @@ plugins {
 }
 
 group   = "io.kotlinretry"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -50,7 +50,7 @@ publishing {
             pom {
                 name.set("kotlin-retry")
                 description.set("Lightweight coroutine-native resilience DSL for Kotlin: retry, circuit breaker, timeout, fallback")
-                url.set("https://github.com/deepakvijayakumar/kotlin-retry")
+                url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
                 licenses {
                     license {
                         name.set("MIT License")
@@ -64,7 +64,7 @@ publishing {
                     }
                 }
                 scm {
-                    url.set("https://github.com/deepakvijayakumar/kotlin-retry")
+                    url.set("https://github.com/deepakvijayakumar14/kotlin-retry")
                 }
             }
         }

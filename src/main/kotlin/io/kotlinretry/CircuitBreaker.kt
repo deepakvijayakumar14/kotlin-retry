@@ -1,5 +1,6 @@
 package io.kotlinretry
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
@@ -63,7 +64,9 @@ class CircuitBreaker private constructor(private val config: Config) {
      */
     // The breaker must observe every failure type before deciding; [Config.recordFailure]
     // narrows down what counts as a circuit failure.
-    @Suppress("TooGenericExceptionCaught")
+    // Three exits are inherent: reject while OPEN, rethrow cancellation, rethrow a recorded
+    // failure after counting it.
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     suspend fun <T> execute(block: suspend () -> T): T {
         val current = resolvedState()
 
@@ -75,6 +78,10 @@ class CircuitBreaker private constructor(private val config: Config) {
             val result = block()
             onSuccess(current)
             result
+        } catch (ex: CancellationException) {
+            // A withdrawn call says nothing about the dependency's health, so it must not
+            // count towards opening the circuit.
+            throw ex
         } catch (ex: Throwable) {
             if (config.recordFailure(ex)) onFailure(current)
             throw ex

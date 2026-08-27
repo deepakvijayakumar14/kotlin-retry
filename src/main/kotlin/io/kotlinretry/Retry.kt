@@ -1,5 +1,6 @@
 package io.kotlinretry
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
@@ -10,56 +11,105 @@ private val log = LoggerFactory.getLogger("io.kotlinretry.Retry")
 /** Default number of total attempts (including the first try) used by [RetryPolicy.Builder]. */
 private const val DEFAULT_MAX_ATTEMPTS = 3
 
+/** Default base delay before the first retry. */
+private val DEFAULT_DELAY = 200.milliseconds
+
+/** Shared default strategy. [Backoff.exponential] is stateless, so one instance is reusable. */
+private val DEFAULT_BACKOFF = Backoff.exponential()
+
+/** Default predicate: retry any [Exception], but never an [Error]. */
+private val DEFAULT_RETRY_ON: (Throwable) -> Boolean = { it is Exception }
+
 // -------------------------------------------------------------------------------------------------
 // Public DSL entry points
 // -------------------------------------------------------------------------------------------------
 
 /**
- * Retries [block] according to a [RetryPolicy] built with the DSL.
+ * Retries [block] until it succeeds or [attempts] is exhausted.
  *
  * ```kotlin
- * val result = retry(configure = {
- *     attempts  = 3
- *     delay     = 500.milliseconds
- *     backoff   = Backoff.exponential()
- *     retryOn   = { it is IOException }
- * }) {
+ * val result = retry(attempts = 3, delay = 500.milliseconds, retryOn = { it is IOException }) {
  *     callRemoteApi()
  * }
  * ```
  *
- * Kotlin permits only one trailing lambda per call, so [configure] is passed by name
- * and [block] stays in the trailing position.
+ * For configuration you want to name and reuse, build a [retryPolicy] instead.
  *
  * @throws RetryExhaustedException if all attempts fail
  */
+// A flat named-parameter list is the point of this overload: it keeps the operation in the
+// trailing lambda, which a configuration block would otherwise occupy.
+@Suppress("LongParameterList")
 suspend fun <T> retry(
-    configure: RetryPolicy.Builder.() -> Unit = {},
+    attempts: Int = DEFAULT_MAX_ATTEMPTS,
+    delay: Duration = DEFAULT_DELAY,
+    backoff: Backoff = DEFAULT_BACKOFF,
+    retryOn: (Throwable) -> Boolean = DEFAULT_RETRY_ON,
+    onRetry: ((RetryContext, Throwable) -> Unit)? = null,
     block: suspend (RetryContext) -> T,
-): T = RetryPolicy.Builder().apply(configure).build().execute(block)
+): T = retryPolicy {
+    this.attempts = attempts
+    this.delay    = delay
+    this.backoff  = backoff
+    this.retryOn  = retryOn
+    this.onRetry  = onRetry
+}.execute(block)
 
 /**
  * Retries [block] and returns [default] if all attempts fail instead of throwing.
  *
  * ```kotlin
- * val price = retryOrDefault(default = 0.0) {
- *     fetchLivePrice(ticker)
- * }
+ * val price = retryOrDefault(default = 0.0) { fetchLivePrice(ticker) }
  * ```
  */
+// Converting any failure into [default] is this function's whole contract.
+@Suppress("LongParameterList", "TooGenericExceptionCaught")
 suspend fun <T> retryOrDefault(
     default: T,
-    configure: RetryPolicy.Builder.() -> Unit = {},
+    attempts: Int = DEFAULT_MAX_ATTEMPTS,
+    delay: Duration = DEFAULT_DELAY,
+    backoff: Backoff = DEFAULT_BACKOFF,
+    retryOn: (Throwable) -> Boolean = DEFAULT_RETRY_ON,
+    onRetry: ((RetryContext, Throwable) -> Unit)? = null,
     block: suspend (RetryContext) -> T,
-): T = runCatching { retry(configure, block) }.getOrDefault(default)
+): T = try {
+    retry(attempts, delay, backoff, retryOn, onRetry, block)
+} catch (ex: CancellationException) {
+    throw ex                       // never swallow cancellation
+} catch (@Suppress("SwallowedException") ex: Throwable) {
+    default
+}
 
 /**
  * Retries [block] and returns `null` if all attempts fail instead of throwing.
  */
+// Converting any failure into null is this function's whole contract.
+@Suppress("LongParameterList", "TooGenericExceptionCaught")
 suspend fun <T> retryOrNull(
-    configure: RetryPolicy.Builder.() -> Unit = {},
+    attempts: Int = DEFAULT_MAX_ATTEMPTS,
+    delay: Duration = DEFAULT_DELAY,
+    backoff: Backoff = DEFAULT_BACKOFF,
+    retryOn: (Throwable) -> Boolean = DEFAULT_RETRY_ON,
+    onRetry: ((RetryContext, Throwable) -> Unit)? = null,
     block: suspend (RetryContext) -> T,
-): T? = runCatching { retry(configure, block) }.getOrNull()
+): T? = try {
+    retry(attempts, delay, backoff, retryOn, onRetry, block)
+} catch (ex: CancellationException) {
+    throw ex                       // never swallow cancellation
+} catch (@Suppress("SwallowedException") ex: Throwable) {
+    null
+}
+
+/**
+ * Builds a reusable [RetryPolicy].
+ *
+ * ```kotlin
+ * val flaky = retryPolicy { attempts = 5; backoff = Backoff.jitter() }
+ * val result = flaky.execute { callRemoteApi() }
+ * ```
+ */
+fun retryPolicy(configure: RetryPolicy.Builder.() -> Unit = {}): RetryPolicy =
+    RetryPolicy.Builder().apply(configure).build()
 
 // -------------------------------------------------------------------------------------------------
 // RetryPolicy
@@ -79,14 +129,21 @@ class RetryPolicy private constructor(
 
     // Retrying is only meaningful if every failure type can be inspected, so the catch is
     // deliberately broad; [retryOn] decides what is actually retryable.
-    @Suppress("TooGenericExceptionCaught")
-    internal suspend fun <T> execute(block: suspend (RetryContext) -> T): T {
+    // Three exits are inherent: rethrow cancellation, rethrow a non-retryable failure, and
+    // report exhaustion once the attempts run out.
+    @Suppress("TooGenericExceptionCaught", "ThrowsCount")
+    suspend fun <T> execute(block: suspend (RetryContext) -> T): T {
         var lastException: Throwable? = null
 
         for (attempt in 1..maxAttempts) {
             val ctx = RetryContext(attempt = attempt, maxAttempts = maxAttempts)
             try {
                 return block(ctx)
+            } catch (ex: CancellationException) {
+                // Cancellation is not a failure of the operation - it is the caller withdrawing
+                // it. Retrying here would defeat structured concurrency and swallow the timeout
+                // that ResiliencePolicy layers on top.
+                throw ex
             } catch (ex: Throwable) {
                 if (!retryOn(ex)) throw ex          // non-retryable: rethrow immediately
                 lastException = ex
@@ -122,19 +179,19 @@ class RetryPolicy private constructor(
          * Base delay before the first retry. Subsequent delays are computed by [backoff].
          * Default: 200ms.
          */
-        var delay: Duration = 200.milliseconds
+        var delay: Duration = DEFAULT_DELAY
 
         /**
          * Backoff strategy. Default: [Backoff.exponential].
          */
-        var backoff: Backoff = Backoff.exponential()
+        var backoff: Backoff = DEFAULT_BACKOFF
 
         /**
          * Predicate that decides whether an exception should trigger a retry.
          * Return `true` to retry, `false` to rethrow immediately.
          * Default: retry on any [Exception] (but not [Error]).
          */
-        var retryOn: (Throwable) -> Boolean = { it is Exception }
+        var retryOn: (Throwable) -> Boolean = DEFAULT_RETRY_ON
 
         /**
          * Optional callback invoked before each retry delay.
