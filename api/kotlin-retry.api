@@ -1,0 +1,172 @@
+public abstract interface class io/kotlinretry/Backoff {
+	public static final field Companion Lio/kotlinretry/Backoff$Companion;
+	public abstract fun delayFor-hgUFU34 (IJ)J
+}
+
+public final class io/kotlinretry/Backoff$Companion {
+	public final fun decorrelatedJitter-LRDsOJo (J)Lio/kotlinretry/Backoff;
+	public static synthetic fun decorrelatedJitter-LRDsOJo$default (Lio/kotlinretry/Backoff$Companion;JILjava/lang/Object;)Lio/kotlinretry/Backoff;
+	public final fun exponential-HG0u8IE (DJ)Lio/kotlinretry/Backoff;
+	public static synthetic fun exponential-HG0u8IE$default (Lio/kotlinretry/Backoff$Companion;DJILjava/lang/Object;)Lio/kotlinretry/Backoff;
+	public final fun getFixed ()Lio/kotlinretry/Backoff;
+	public final fun getLinear ()Lio/kotlinretry/Backoff;
+	public final fun getNone ()Lio/kotlinretry/Backoff;
+	public final fun jitter-HG0u8IE (DJ)Lio/kotlinretry/Backoff;
+	public static synthetic fun jitter-HG0u8IE$default (Lio/kotlinretry/Backoff$Companion;DJILjava/lang/Object;)Lio/kotlinretry/Backoff;
+}
+
+public final class io/kotlinretry/CircuitBreaker {
+	public synthetic fun <init> (Lio/kotlinretry/CircuitBreaker$Config;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun execute (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCurrentState ()Lio/kotlinretry/CircuitBreaker$State;
+	public final fun getName ()Ljava/lang/String;
+	public final fun reset (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/kotlinretry/CircuitBreaker$Builder {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getFailureThreshold ()I
+	public final fun getOnStateChange ()Lkotlin/jvm/functions/Function3;
+	public final fun getOpenDuration-UwyO8pc ()J
+	public final fun getPermittedCallsInHalfOpen ()I
+	public final fun getRecordFailure ()Lkotlin/jvm/functions/Function1;
+	public final fun getSuccessThreshold ()I
+	public final fun setFailureThreshold (I)V
+	public final fun setOnStateChange (Lkotlin/jvm/functions/Function3;)V
+	public final fun setOpenDuration-LRDsOJo (J)V
+	public final fun setPermittedCallsInHalfOpen (I)V
+	public final fun setRecordFailure (Lkotlin/jvm/functions/Function1;)V
+	public final fun setSuccessThreshold (I)V
+}
+
+public final class io/kotlinretry/CircuitBreaker$Config {
+	public synthetic fun <init> (Ljava/lang/String;IIIJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/time/TimeSource;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;IIIJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/time/TimeSource;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5-UwyO8pc ()J
+	public final fun component6 ()Lkotlin/jvm/functions/Function1;
+	public final fun component7 ()Lkotlin/jvm/functions/Function3;
+	public final fun component8 ()Lkotlin/time/TimeSource;
+	public final fun copy-Zb7fWow (Ljava/lang/String;IIIJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/time/TimeSource;)Lio/kotlinretry/CircuitBreaker$Config;
+	public static synthetic fun copy-Zb7fWow$default (Lio/kotlinretry/CircuitBreaker$Config;Ljava/lang/String;IIIJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/time/TimeSource;ILjava/lang/Object;)Lio/kotlinretry/CircuitBreaker$Config;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFailureThreshold ()I
+	public final fun getName ()Ljava/lang/String;
+	public final fun getOnStateChange ()Lkotlin/jvm/functions/Function3;
+	public final fun getOpenDuration-UwyO8pc ()J
+	public final fun getPermittedCallsInHalfOpen ()I
+	public final fun getRecordFailure ()Lkotlin/jvm/functions/Function1;
+	public final fun getSuccessThreshold ()I
+	public final fun getTimeSource ()Lkotlin/time/TimeSource;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/kotlinretry/CircuitBreaker$State : java/lang/Enum {
+	public static final field CLOSED Lio/kotlinretry/CircuitBreaker$State;
+	public static final field HALF_OPEN Lio/kotlinretry/CircuitBreaker$State;
+	public static final field OPEN Lio/kotlinretry/CircuitBreaker$State;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/kotlinretry/CircuitBreaker$State;
+	public static fun values ()[Lio/kotlinretry/CircuitBreaker$State;
+}
+
+public final class io/kotlinretry/CircuitBreakerKt {
+	public static final fun circuitBreaker (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Lio/kotlinretry/CircuitBreaker;
+	public static synthetic fun circuitBreaker$default (Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/kotlinretry/CircuitBreaker;
+}
+
+public final class io/kotlinretry/CircuitBreakerOpenException : java/lang/Exception {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getName ()Ljava/lang/String;
+}
+
+public final class io/kotlinretry/FlowRetryKt {
+	public static final fun retryWith (Lkotlinx/coroutines/flow/Flow;Lio/kotlinretry/RetryPolicy;)Lkotlinx/coroutines/flow/Flow;
+	public static final fun retryWith-WPi__2c (Lkotlinx/coroutines/flow/Flow;IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun retryWith-WPi__2c$default (Lkotlinx/coroutines/flow/Flow;IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/kotlinretry/OperationTimeoutException : java/lang/Exception {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class io/kotlinretry/ResiliencePolicy {
+	public final fun execute (Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun executeOrElse (Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCircuitBreaker ()Lio/kotlinretry/CircuitBreaker;
+	public final fun getName ()Ljava/lang/String;
+}
+
+public final class io/kotlinretry/ResiliencePolicyBuilder {
+	public final fun circuitBreaker (Lkotlin/jvm/functions/Function1;)V
+	public final fun retry (Lkotlin/jvm/functions/Function1;)V
+	public final fun timeout-LRDsOJo (J)V
+	public final fun use (Lio/kotlinretry/CircuitBreaker;)V
+}
+
+public final class io/kotlinretry/ResiliencePolicyKt {
+	public static final fun resiliencePolicy (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Lio/kotlinretry/ResiliencePolicy;
+	public static synthetic fun resiliencePolicy$default (Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/kotlinretry/ResiliencePolicy;
+}
+
+public final class io/kotlinretry/RetryContext {
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lio/kotlinretry/RetryContext;
+	public static synthetic fun copy$default (Lio/kotlinretry/RetryContext;IIILjava/lang/Object;)Lio/kotlinretry/RetryContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getMaxAttempts ()I
+	public final fun getRetriesRemaining ()I
+	public fun hashCode ()I
+	public final fun isFirstAttempt ()Z
+	public final fun isLastAttempt ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/kotlinretry/RetryExhaustedException : java/lang/Exception {
+	public fun <init> (ILjava/lang/Throwable;)V
+	public final fun getAttempts ()I
+}
+
+public final class io/kotlinretry/RetryKt {
+	public static final fun retry-nRVORKE (IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun retry-nRVORKE$default (IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun retryOrDefault-KVH2U2I (Ljava/lang/Object;IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun retryOrDefault-KVH2U2I$default (Ljava/lang/Object;IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun retryOrNull-nRVORKE (IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun retryOrNull-nRVORKE$default (IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun retryPolicy (Lkotlin/jvm/functions/Function1;)Lio/kotlinretry/RetryPolicy;
+	public static synthetic fun retryPolicy$default (Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/kotlinretry/RetryPolicy;
+}
+
+public final class io/kotlinretry/RetryPolicy {
+	public synthetic fun <init> (IJLio/kotlinretry/Backoff;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun execute (Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getBackoff ()Lio/kotlinretry/Backoff;
+	public final fun getInitialDelay-UwyO8pc ()J
+	public final fun getMaxAttempts ()I
+	public final fun getOnRetry ()Lkotlin/jvm/functions/Function2;
+	public final fun getRetryOn ()Lkotlin/jvm/functions/Function1;
+}
+
+public final class io/kotlinretry/RetryPolicy$Builder {
+	public fun <init> ()V
+	public final fun getAttempts ()I
+	public final fun getBackoff ()Lio/kotlinretry/Backoff;
+	public final fun getDelay-UwyO8pc ()J
+	public final fun getOnRetry ()Lkotlin/jvm/functions/Function2;
+	public final fun getRetryOn ()Lkotlin/jvm/functions/Function1;
+	public final fun setAttempts (I)V
+	public final fun setBackoff (Lio/kotlinretry/Backoff;)V
+	public final fun setDelay-LRDsOJo (J)V
+	public final fun setOnRetry (Lkotlin/jvm/functions/Function2;)V
+	public final fun setRetryOn (Lkotlin/jvm/functions/Function1;)V
+}
+
