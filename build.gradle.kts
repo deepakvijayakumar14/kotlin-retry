@@ -7,11 +7,11 @@ plugins {
     `java-library`
     id("org.jetbrains.dokka") version "2.2.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
-    id("org.jetbrains.kotlinx.kover") version "0.9.1"
+    id("org.jetbrains.kotlinx.kover") version "0.9.9"
     // Fails the build when the public ABI drifts from api/kotlin-retry.api. Regenerate the
     // dump with `./gradlew apiDump` and review the diff - that diff is the compatibility story
     // a published library owes its consumers.
-    id("org.jetbrains.kotlinx.binary-compatibility-validator") version "0.16.3"
+    id("org.jetbrains.kotlinx.binary-compatibility-validator") version "0.18.1"
     // Matches kotlin-snowflake. 0.30.0 is the last line that supports Kotlin 1.9.x;
     // 0.37.0 requires Kotlin Gradle Plugin 2.2+.
     id("com.vanniktech.maven.publish") version "0.30.0"
@@ -27,11 +27,11 @@ repositories {
 }
 
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.slf4j:slf4j-api:2.0.18")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     testImplementation("io.kotest:kotest-runner-junit5:5.8.1")
     testImplementation("io.kotest:kotest-assertions-core:5.8.1")
     testImplementation("ch.qos.logback:logback-classic:1.5.3")
