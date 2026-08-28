@@ -27,7 +27,7 @@ Useful individual tasks:
 | `./gradlew apiDump` | Regenerate `api/kotlin-retry.api` after an intentional API change |
 | `./gradlew koverHtmlReport` | Coverage report at `build/reports/kover/html/index.html` |
 | `./gradlew koverLog` | Print the coverage percentage |
-| `./gradlew dokkaHtml` | API documentation |
+| `./gradlew dokkaGenerateHtml` | API documentation |
 
 ## What a change needs
 

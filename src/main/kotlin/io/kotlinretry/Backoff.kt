@@ -33,7 +33,7 @@ private fun grown(millis: Long): Long =
 /**
  * Strategy that computes the delay before each retry attempt.
  *
- * [attempt] is 1-based (first retry = 1).
+ * `attempt` is 1-based (first retry = 1).
  */
 fun interface Backoff {
     fun delayFor(attempt: Int, base: Duration): Duration
@@ -44,7 +44,7 @@ fun interface Backoff {
         val none: Backoff = Backoff { _, _ -> Duration.ZERO }
 
         /**
-         * Fixed delay: every attempt waits the same [base] duration.
+         * Fixed delay: every attempt waits the same `base` duration.
          *
          * ```
          * attempt 1 -> 500ms
@@ -55,7 +55,7 @@ fun interface Backoff {
         val fixed: Backoff = Backoff { _, base -> base }
 
         /**
-         * Linear backoff: delay grows by [base] on each attempt.
+         * Linear backoff: delay grows by `base` on each attempt.
          *
          * ```
          * attempt 1 -> 500ms
@@ -88,7 +88,7 @@ fun interface Backoff {
          * Best choice for distributed systems to avoid thundering herd.
          *
          * Returns [Duration.ZERO] when the ceiling rounds down to less than a millisecond
-         * (a sub-millisecond [base], a zero [maxDelay], or a non-positive input).
+         * (a sub-millisecond `base`, a zero [maxDelay], or a non-positive input).
          *
          * See: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
          */
@@ -110,8 +110,8 @@ fun interface Backoff {
          * Decorrelated jitter: delay is randomized over `[base, 3x previous delay)`, capped at
          * [maxDelay]. Even better than full jitter for spreading retries across clients.
          *
-         * The result is always clamped to `[0, maxDelay]`, so a [base] above [maxDelay] yields
-         * [maxDelay] rather than an out-of-range delay. The first call returns [base].
+         * The result is always clamped to `[0, maxDelay]`, so a `base` above [maxDelay] yields
+         * [maxDelay] rather than an out-of-range delay. The first call returns `base`.
          *
          * The returned [Backoff] carries the previous delay as state, held atomically, so a single
          * instance is safe to share across concurrent coroutines and threads. Each caller still
