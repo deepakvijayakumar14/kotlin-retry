@@ -6,7 +6,7 @@ plugins {
     kotlin("jvm") version "1.9.23"
     `java-library`
     id("org.jetbrains.dokka") version "1.9.20"
-    id("io.gitlab.arturbosch.detekt") version "1.23.6"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
     id("org.jetbrains.kotlinx.kover") version "0.9.1"
     // Fails the build when the public ABI drifts from api/kotlin-retry.api. Regenerate the
     // dump with `./gradlew apiDump` and review the diff - that diff is the compatibility story
