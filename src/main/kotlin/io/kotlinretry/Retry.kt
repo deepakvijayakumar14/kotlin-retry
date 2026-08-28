@@ -107,6 +107,9 @@ suspend fun <T> retryOrNull(
  * val flaky = retryPolicy { attempts = 5; backoff = Backoff.jitter() }
  * val result = flaky.execute { callRemoteApi() }
  * ```
+ *
+ * @throws IllegalArgumentException if [RetryPolicy.Builder.attempts] is below 1 or
+ *   [RetryPolicy.Builder.delay] is negative
  */
 fun retryPolicy(configure: RetryPolicy.Builder.() -> Unit = {}): RetryPolicy =
     RetryPolicy.Builder().apply(configure).build()
@@ -127,10 +130,18 @@ class RetryPolicy private constructor(
     val onRetry: ((RetryContext, Throwable) -> Unit)?,
 ) {
 
+    /**
+     * Runs [block], retrying while [retryOn] accepts the failure and attempts remain.
+     *
+     * [CancellationException] and [CircuitBreakerOpenException] are never retried, whatever
+     * [retryOn] says - see the note on [Builder.retryOn].
+     *
+     * @throws RetryExhaustedException if every attempt fails
+     */
     // Retrying is only meaningful if every failure type can be inspected, so the catch is
     // deliberately broad; [retryOn] decides what is actually retryable.
-    // Three exits are inherent: rethrow cancellation, rethrow a non-retryable failure, and
-    // report exhaustion once the attempts run out.
+    // Four exits are inherent: rethrow cancellation, rethrow a breaker rejection, rethrow a
+    // non-retryable failure, and report exhaustion once the attempts run out.
     @Suppress("TooGenericExceptionCaught", "ThrowsCount")
     suspend fun <T> execute(block: suspend (RetryContext) -> T): T {
         var lastException: Throwable? = null
@@ -143,6 +154,12 @@ class RetryPolicy private constructor(
                 // Cancellation is not a failure of the operation - it is the caller withdrawing
                 // it. Retrying here would defeat structured concurrency and swallow the timeout
                 // that ResiliencePolicy layers on top.
+                throw ex
+            } catch (ex: CircuitBreakerOpenException) {
+                // An open circuit is a load-shedding decision, not a failed call. Retrying it
+                // burns the caller's attempts and backoff delays to re-ask a question already
+                // answered, and would bury the rejection inside RetryExhaustedException - so a
+                // fallback matching on CircuitBreakerOpenException would never see it.
                 throw ex
             } catch (ex: Throwable) {
                 if (!retryOn(ex)) throw ex          // non-retryable: rethrow immediately
@@ -190,6 +207,11 @@ class RetryPolicy private constructor(
          * Predicate that decides whether an exception should trigger a retry.
          * Return `true` to retry, `false` to rethrow immediately.
          * Default: retry on any [Exception] (but not [Error]).
+         *
+         * Two exceptions are never retried regardless of this predicate:
+         * [kotlinx.coroutines.CancellationException], because the caller withdrew the work, and
+         * [CircuitBreakerOpenException], because a breaker that is shedding load will not change
+         * its mind within a retry window.
          */
         var retryOn: (Throwable) -> Boolean = DEFAULT_RETRY_ON
 
@@ -199,13 +221,20 @@ class RetryPolicy private constructor(
          */
         var onRetry: ((RetryContext, Throwable) -> Unit)? = null
 
-        internal fun build() = RetryPolicy(
-            maxAttempts  = attempts,
-            initialDelay = delay,
-            backoff      = backoff,
-            retryOn      = retryOn,
-            onRetry      = onRetry,
-        )
+        internal fun build(): RetryPolicy {
+            // Without this, attempts = 0 skips the loop entirely and fails with a
+            // NullPointerException on the unset lastException instead of naming the mistake.
+            require(attempts >= 1) { "attempts must be at least 1, but was $attempts" }
+            require(delay >= Duration.ZERO) { "delay must not be negative, but was $delay" }
+
+            return RetryPolicy(
+                maxAttempts  = attempts,
+                initialDelay = delay,
+                backoff      = backoff,
+                retryOn      = retryOn,
+                onRetry      = onRetry,
+            )
+        }
     }
 }
 

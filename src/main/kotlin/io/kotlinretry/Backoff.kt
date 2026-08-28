@@ -7,6 +7,21 @@ import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Rejects the factory arguments that would otherwise surface as a nonsense delay much later:
+ * a NaN or negative multiplier, or a negative ceiling.
+ */
+private fun requireValidGrowth(multiplier: Double, maxDelay: Duration) {
+    require(multiplier.isFinite() && multiplier > 0.0) {
+        "multiplier must be finite and positive, but was $multiplier"
+    }
+    requireValidCeiling(maxDelay)
+}
+
+private fun requireValidCeiling(maxDelay: Duration) {
+    require(maxDelay >= Duration.ZERO) { "maxDelay must not be negative, but was $maxDelay" }
+}
+
 /** Growth factor applied to the previous delay by [Backoff.decorrelatedJitter]. */
 private const val DECORRELATED_JITTER_GROWTH = 3
 
@@ -59,11 +74,13 @@ fun interface Backoff {
          * attempt 3 -> 2000ms
          * ```
          */
-        fun exponential(multiplier: Double = 2.0, maxDelay: Duration = 30_000.milliseconds): Backoff =
-            Backoff { attempt, base ->
+        fun exponential(multiplier: Double = 2.0, maxDelay: Duration = 30_000.milliseconds): Backoff {
+            requireValidGrowth(multiplier, maxDelay)
+            return Backoff { attempt, base ->
                 val ms = base.inWholeMilliseconds * multiplier.pow(attempt - 1)
                 min(ms, maxDelay.inWholeMilliseconds.toDouble()).toLong().milliseconds
             }
+        }
 
         /**
          * Full jitter: randomizes the delay uniformly over `[0, ceiling)`, where the ceiling is
@@ -75,8 +92,9 @@ fun interface Backoff {
          *
          * See: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
          */
-        fun jitter(multiplier: Double = 2.0, maxDelay: Duration = 30_000.milliseconds): Backoff =
-            Backoff { attempt, base ->
+        fun jitter(multiplier: Double = 2.0, maxDelay: Duration = 30_000.milliseconds): Backoff {
+            requireValidGrowth(multiplier, maxDelay)
+            return Backoff { attempt, base ->
                 val ceiling = min(
                     base.inWholeMilliseconds * multiplier.pow(attempt - 1),
                     maxDelay.inWholeMilliseconds.toDouble()
@@ -86,6 +104,7 @@ fun interface Backoff {
                 val ceilingMillis = ceiling.toLong().coerceAtLeast(0L)
                 if (ceilingMillis == 0L) Duration.ZERO else Random.nextLong(ceilingMillis).milliseconds
             }
+        }
 
         /**
          * Decorrelated jitter: delay is randomized over `[base, 3x previous delay)`, capped at
@@ -99,6 +118,7 @@ fun interface Backoff {
          * receives its own draw; concurrent callers simply chain off whichever delay landed first.
          */
         fun decorrelatedJitter(maxDelay: Duration = 30_000.milliseconds): Backoff {
+            requireValidCeiling(maxDelay)
             val previousMillis = AtomicLong(0L)
             return Backoff { _, base ->
                 val cap = maxDelay.inWholeMilliseconds.coerceAtLeast(0L)

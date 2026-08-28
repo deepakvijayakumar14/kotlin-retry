@@ -23,12 +23,14 @@ import kotlin.time.Duration
  *   [RetryExhaustedException]. Downstream `catch` operators are given the real cause, so
  *   `catch { if (it is IOException) ... }` behaves as written.
  *
- * Cancellation is never retried, matching every other layer in this library.
+ * Cancellation is never retried, matching every other layer in this library. Neither is a
+ * [CircuitBreakerOpenException] from a breaker upstream - see [RetryPolicy.execute].
  */
 fun <T> Flow<T>.retryWith(policy: RetryPolicy): Flow<T> = retryWhen { cause, attemptIndex ->
     // attemptIndex counts retries already made, so it is also the 0-based index of the attempt
     // that just failed. Compare before narrowing: it is a Long and maxAttempts an Int.
     if (cause is CancellationException) return@retryWhen false
+    if (cause is CircuitBreakerOpenException) return@retryWhen false
     if (!policy.retryOn(cause)) return@retryWhen false
     if (attemptIndex >= policy.maxAttempts - 1L) return@retryWhen false
 

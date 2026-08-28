@@ -30,6 +30,35 @@ class ReadmeSnippetsCompileCheck : DescribeSpec({
             result shouldBe "cached-result"
         }
 
+        it("composing everything: the fallback distinguishes the failure it was given") {
+            val payments = resiliencePolicy("payment-processor") {
+                retry {
+                    attempts = 3
+                    delay    = 0.milliseconds
+                    backoff  = Backoff.jitter()
+                    retryOn  = { it is IOException }
+                }
+                // Threshold matches the attempt count, so all three attempts run and the third
+                // failure is what trips the breaker.
+                circuitBreaker { failureThreshold = 3; openDuration = 30.seconds }
+                timeout(8.seconds)
+            }
+
+            fun charge(): suspend (RetryContext) -> String = { throw IOException("gateway down") }
+
+            fun handle(ex: Throwable): String = when (ex) {
+                is CircuitBreakerOpenException -> "service-unavailable"
+                is OperationTimeoutException   -> "timed-out"
+                else                           -> "exhausted"
+            }
+
+            payments.executeOrElse(fallback = ::handle, block = charge()) shouldBe "exhausted"
+
+            // The breaker is open now, and the README's `is CircuitBreakerOpenException` branch
+            // has to actually match - it would not if the rejection were wrapped by the retry.
+            payments.executeOrElse(fallback = ::handle) { "live" } shouldBe "service-unavailable"
+        }
+
         it("retry: basic, filtered, and context-aware forms") {
             val basic = retry(attempts = 3, delay = 0.milliseconds, backoff = Backoff.exponential()) {
                 "fetched"

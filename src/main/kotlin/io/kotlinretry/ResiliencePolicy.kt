@@ -23,8 +23,17 @@ import kotlin.time.Duration
  *
  * Execution order, outermost to innermost:
  * ```
- * fallback( timeout( circuitBreaker( retry( block ) ) ) )
+ * fallback( timeout( retry( circuitBreaker( block ) ) ) )
  * ```
+ *
+ * The breaker sits *inside* the retry loop on purpose: it then sees every individual attempt, so
+ * a dependency that fails three times in one `execute` call moves the breaker three failures
+ * closer to opening. Counting one logical failure per policy execution instead would make an
+ * outage take `attempts` times longer to detect.
+ *
+ * The cost of that order is that a retry loop could sit and retry a breaker that is already
+ * rejecting calls, so [RetryPolicy] never retries [CircuitBreakerOpenException]. An open circuit
+ * therefore reaches [executeOrElse] as itself, not wrapped in [RetryExhaustedException].
  *
  * The policy itself is not generic, so a single instance serves call sites returning different
  * types. A fallback is supplied per call via [executeOrElse], where the result type is known.
