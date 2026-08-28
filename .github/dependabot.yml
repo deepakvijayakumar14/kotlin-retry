@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # Kotlin, coroutines, slf4j, and the Gradle plugins. Grouped so a routine version bump is one
+  # reviewable PR rather than six.
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlinx*"
+      test-dependencies:
+        patterns:
+          - "io.kotest*"
+          - "ch.qos.logback*"
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

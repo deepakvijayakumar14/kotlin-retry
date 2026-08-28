@@ -7,30 +7,49 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The library targets 17. 21 is here to catch a JDK that the toolchain compiles for but
+        # the runtime rejects, before a consumer on a newer JVM finds it.
+        java: ['17', '21']
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: ${{ matrix.java }}
           distribution: 'temurin'
           cache: gradle
 
-      - name: Build
-        run: ./gradlew build -x test
-
-      - name: Test
-        run: ./gradlew test --no-daemon
+      # One invocation: `check` compiles, tests, runs detekt, verifies the public ABI against
+      # api/kotlin-retry.api, and runs the Kover verification rules. Splitting it into separate
+      # Gradle runs only recompiles the same sources twice.
+      - name: Check
+        run: ./gradlew check
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-java-${{ matrix.java }}
           path: build/reports/tests/
 
-      - name: Detekt
-        run: ./gradlew detekt
+      # `check` has already failed the build if coverage fell below the floor. This only surfaces
+      # the number in the run summary and keeps the HTML report as an artifact, so reviewing
+      # coverage needs no account and no third-party service.
+      - name: Report coverage
+        if: matrix.java == '17'
+        run: ./gradlew koverHtmlReport koverLog -q | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/reports/kover/html/
