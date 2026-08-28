@@ -42,6 +42,9 @@ names and values as `kotlin-snowflake`, but secrets do not cross repositories â€
 ## Cutting a release
 
 1. Set `version` in `build.gradle.kts`, update `CHANGELOG.md`, and commit.
+   If the public API changed, run `./gradlew apiDump` and commit `api/kotlin-retry.api` too â€”
+   that file is the compatibility record consumers are owed, and `apiCheck` fails the build
+   without it.
 2. **Dry run first.** Actions â†’ *Publish* â†’ *Run workflow*, leaving **dry run** checked. This
    builds, tests, and signs against the real key without uploading, then fails loudly if no `.asc`
    signatures were produced. A broken or missing key is the usual first-release failure, and this
@@ -51,7 +54,7 @@ names and values as `kotlin-snowflake`, but secrets do not cross repositories â€
 5. Tag the released commit:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 ## Why publishing is manual

@@ -2,9 +2,10 @@
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.deepakvijayakumar14/kotlin-retry.svg)](https://central.sonatype.com/artifact/io.github.deepakvijayakumar14/kotlin-retry)
 [![CI](https://github.com/deepakvijayakumar14/kotlin-retry/actions/workflows/ci.yml/badge.svg)](https://github.com/deepakvijayakumar14/kotlin-retry/actions)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen)](CONTRIBUTING.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A lightweight, coroutine-native resilience DSL for Kotlin. Composable retry, circuit breaker, timeout, and fallback — without the weight of Resilience4j.
+A small, coroutine-native resilience DSL for Kotlin: composable retry, circuit breaker, timeout, and fallback in one dependency.
 
 ```kotlin
 // Build the policy once - it owns the circuit breaker's state.
@@ -22,18 +23,24 @@ val result = payments.executeOrElse(fallback = { "cached-result" }) {
 
 ---
 
-## Why not Resilience4j?
+## How this compares to Resilience4j
 
-Resilience4j is excellent but designed for Java: registry-based, annotation-heavy, and callback-oriented. `kotlin-retry` is built around Kotlin coroutines and DSL idioms from the ground up:
+Resilience4j is the mature, full-featured option, and its
+[Kotlin module](https://resilience4j.readme.io/docs/getting-started-4) does support `suspend`
+functions and `Flow` operators. Reach for it when you need the breadth. `kotlin-retry` is the
+smaller choice: Kotlin all the way down, one artifact, and a DSL rather than a decorator chain.
 
 | | kotlin-retry | Resilience4j |
-|---|:---:|:---:|
-| Coroutine-native (`suspend`) | YES | Partial |
-| `Flow` operator | YES | NO |
-| DSL configuration | YES | NO |
-| Zero code generation | YES | YES |
-| Dependency footprint | Coroutines only | 10+ modules |
-| Registry required | NO | YES |
+|---|---|---|
+| Written in | Kotlin | Java core + Kotlin extensions |
+| Artifacts | One | Core module per concern |
+| Configuration | DSL | Builder / decorator, optional annotations |
+| Registry | Not required | Central registry |
+| `suspend` support | Yes | Yes |
+| `Flow` support | Yes | Yes |
+| Retry, circuit breaker, timeout, fallback | Yes | Yes |
+| Rate limiter, bulkhead, cache | No | Yes |
+| Metrics / framework integrations | `onStateChange` and `onRetry` hooks | Micrometer, Dropwizard, Spring Boot, Micronaut |
 
 ---
 
@@ -44,7 +51,7 @@ The Maven coordinate uses the `io.github.deepakvijayakumar14` namespace; the Kot
 
 ```kotlin
 dependencies {
-    implementation("io.github.deepakvijayakumar14:kotlin-retry:0.2.0")
+    implementation("io.github.deepakvijayakumar14:kotlin-retry:0.3.0")
 }
 ```
 
@@ -88,6 +95,11 @@ val a = flaky.execute { callServiceA() }
 val b = flaky.execute { callServiceB() }
 ```
 
+Configuration is validated where it is written, not where it is used. `attempts = 0`, a negative
+delay, a threshold below 1, or a `NaN` backoff multiplier throws `IllegalArgumentException` from
+the builder — at startup, naming the setting — rather than surfacing as something unrecognisable
+from inside the library much later.
+
 ---
 
 ## Backoff strategies
@@ -111,6 +123,7 @@ val breaker = circuitBreaker("downstream-api") {
     failureThreshold = 5          // Open after 5 consecutive failures
     successThreshold = 2          // Close again after 2 successes in HALF_OPEN
     openDuration     = 30.seconds // Wait before probing recovery
+    permittedCallsInHalfOpen = 1  // Probe with one call at a time (default)
     recordFailure    = { it is IOException || it is HttpException }
     onStateChange    = { name, from, to ->
         metrics.increment("circuit_breaker.transition", "name" to name, "state" to to.name)
@@ -121,6 +134,12 @@ val result = breaker.execute { callDownstreamApi() }
 ```
 
 States: `CLOSED` (normal) -> `OPEN` (rejecting calls) -> `HALF_OPEN` (probing) -> `CLOSED`.
+
+**Half-open is not open season.** When `openDuration` expires the breaker admits at most
+`permittedCallsInHalfOpen` calls at a time — one by default — and rejects the rest with
+`CircuitBreakerOpenException`. Everything that queued up while the circuit was open does not get
+released onto a dependency that has only just come back. The slot is freed after each probe
+finishes, so `successThreshold = 2` means two successful probes in sequence.
 
 ---
 
@@ -167,11 +186,20 @@ cache.executeOrElse(
 
 ## Composing everything
 
-A policy composes all four mechanisms. Execution order:
+A policy composes all four mechanisms. Execution order, outermost to innermost:
 
 ```
-fallback( timeout( circuitBreaker( retry( block ) ) ) )
+fallback( timeout( retry( circuitBreaker( block ) ) ) )
 ```
+
+The breaker sits **inside** the retry loop, so it sees every individual attempt: a dependency that
+fails three times in one `execute` call moves the breaker three failures closer to opening.
+Counting one logical failure per call instead would make an outage take `attempts` times longer to
+detect.
+
+The flip side is that a retry loop must not sit there retrying a breaker that is already rejecting
+calls, so `CircuitBreakerOpenException` is never retried. An open circuit fails fast and arrives at
+your fallback as itself, not wrapped in `RetryExhaustedException`.
 
 ```kotlin
 val payments = resiliencePolicy("payment-processor") {
@@ -283,6 +311,14 @@ val job = launch {
 }
 job.cancel()   // the retry loop stops; it does not keep retrying
 ```
+
+---
+
+## Contributing
+
+Bug reports and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). `./gradlew
+check` is the whole gate: tests, detekt, public-ABI verification, and a coverage floor enforced by
+Kover. No hosted service is involved — if it is green locally, it is green in CI.
 
 ---
 

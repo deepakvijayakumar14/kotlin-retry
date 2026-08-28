@@ -4,6 +4,71 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-28
+
+Correctness release. The half-open state did not limit probe traffic, the documented composition
+order was the reverse of the implemented one, and invalid configuration was accepted silently.
+Every change below is behavioural; none change a signature you were already calling.
+
+### Added
+
+- `permittedCallsInHalfOpen` on `CircuitBreaker.Builder` (default `1`). A half-open circuit admits
+  at most this many calls at a time and rejects the rest with `CircuitBreakerOpenException`.
+- Configuration validation. `RetryPolicy.Builder`, `CircuitBreaker.Builder` and the `Backoff`
+  factories reject invalid settings with `IllegalArgumentException` naming the setting.
+- Tests pinning the composition order, the half-open probe limit, and each validation rule. The
+  circuit-breaker tests now advance an injected clock instead of sleeping, so the suite no longer
+  waits out real `openDuration` windows.
+- Project tooling: Kover coverage with a floor enforced by `check`, the Kotlin Binary
+  Compatibility Validator (the public ABI is pinned in `api/kotlin-retry.api` and `apiCheck` fails
+  the build on drift), Dependabot, `CONTRIBUTING.md`, and issue/PR templates. CI is now a single
+  `./gradlew check` across JDK 17 and 21 instead of separate build, test, and detekt invocations.
+  All of it runs from the Gradle wrapper and GitHub Actions — no third-party service.
+
+### Changed
+
+- **Breaking (behaviour):** `HALF_OPEN` now admits one call at a time instead of all of them.
+  Previously every concurrent caller passed straight through the moment `openDuration` expired,
+  so a dependency that had just come back received the entire backlog at once — the flood the
+  circuit had spent `openDuration` preventing. Raise `permittedCallsInHalfOpen` to restore
+  more concurrent probing, though not the unbounded behaviour.
+- **Breaking (behaviour):** `RetryPolicy` never retries `CircuitBreakerOpenException`, whatever
+  `retryOn` says. It previously did, because the exception extends `Exception` and so matched the
+  default predicate. Two things follow: an open circuit fails fast instead of serving the caller
+  a full set of backoff delays, and the rejection reaches the caller as itself rather than wrapped
+  in `RetryExhaustedException` — so a fallback matching on `CircuitBreakerOpenException`, as the
+  README's own composed example does, now actually matches. `Flow.retryWith` does the same.
+- The circuit breaker measures `openDuration` with a monotonic `TimeSource` rather than
+  `Instant.now()`. A clock step no longer holds the circuit open past its window or reopens it
+  early. The clock is injectable internally so tests can control it.
+
+### Fixed
+
+- **`HALF_OPEN` did not limit probe traffic**, despite the documentation promising one probe call.
+  See above.
+- **The documented composition order was backwards.** README and KDoc both showed
+  `fallback(timeout(circuitBreaker(retry(block))))`, while `ResiliencePolicy` executes
+  `fallback(timeout(retry(circuitBreaker(block))))`. The implemented order is the intended one —
+  the breaker sees every attempt, so an outage is detected `attempts` times sooner — and is now
+  documented, explained, and covered by tests.
+- **A concurrent probe could undo another probe's decision to reopen.** With more than one
+  permitted half-open call, a probe that succeeded after a sibling had already failed and reopened
+  the circuit would close it again, discarding fresh evidence that the dependency was still down.
+  Closing now requires the circuit to still be `HALF_OPEN`.
+- **Invalid configuration was accepted.** `attempts = 0` skipped the retry loop entirely and threw
+  `NullPointerException` from the library's internals; non-positive thresholds, negative delays and
+  durations, and `NaN`/infinite/negative backoff multipliers were all taken at face value.
+- **The Resilience4j comparison table was inaccurate.** It claimed no `Flow` operator and only
+  partial coroutine support; `resilience4j-kotlin` has had both for years. The table now compares
+  what actually differs, and names what Resilience4j has that this library does not.
+
+### Known limitations
+
+- `Backoff.decorrelatedJitter()` keeps one previous-delay value inside the `Backoff` instance, so
+  concurrent executions sharing an instance draw from each other's chain. It is thread-safe but
+  not per-execution independent. Give each call site its own instance if that matters; making the
+  state per-execution requires changing the `Backoff` interface and is deferred to a later release.
+
 ## [0.2.0] - 2026-08-27
 
 First release published to Maven Central. `0.1.0` was declared in `build.gradle.kts` but never
@@ -93,4 +158,5 @@ it did.
 
 Never tagged or released. The version was declared in the build, but the tree did not compile.
 
+[0.3.0]: https://github.com/deepakvijayakumar14/kotlin-retry/releases/tag/v0.3.0
 [0.2.0]: https://github.com/deepakvijayakumar14/kotlin-retry/releases/tag/v0.2.0

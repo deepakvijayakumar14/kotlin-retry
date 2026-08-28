@@ -1,0 +1,58 @@
+name: Bug report
+description: Something behaves differently from what the documentation says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Resilience bugs are usually about *timing* — a race, a cancellation, or a state
+        transition. The more precisely you can describe the sequence, the faster this gets fixed.
+
+  - type: input
+    id: version
+    attributes:
+      label: kotlin-retry version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Kotlin / coroutines / JDK versions
+      placeholder: "Kotlin 1.9.23, coroutines 1.8.0, JDK 17"
+    validations:
+      required: true
+
+  - type: textarea
+    id: policy
+    attributes:
+      label: Policy configuration
+      description: The `retryPolicy`, `circuitBreaker`, or `resiliencePolicy` block involved.
+      render: kotlin
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the exception type and stack trace if one was thrown.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sequence to reproduce
+      description: |
+        Ideally a failing test. If concurrency or timing is involved, say how many callers,
+        in what order, and where the clock matters.
+      render: kotlin
