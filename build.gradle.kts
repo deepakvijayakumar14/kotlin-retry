@@ -14,7 +14,7 @@ plugins {
     id("org.jetbrains.kotlinx.binary-compatibility-validator") version "0.16.3"
     // Matches kotlin-snowflake. 0.30.0 is the last line that supports Kotlin 1.9.x;
     // 0.37.0 requires Kotlin Gradle Plugin 2.2+.
-    id("com.vanniktech.maven.publish") version "0.30.0"
+    id("com.vanniktech.maven.publish") version "0.37.0"
 }
 
 // Maven coordinate namespace, verified in the Central Portal.
